@@ -1,0 +1,127 @@
+---
+title: "LiDAR Elevation"
+description: "43.6 billion laser-measured points turned into three queryable elevation surfaces — how SAGE decodes LERC tiles at the pixel level"
+---
+
+SAGE provides 1-foot resolution elevation data for every point in Solano County, derived from airborne LiDAR. Ask about ground level, building height, or surface elevation at any address or coordinate — the AI queries three independent models and explains what the numbers mean.
+
+On the interactive map, LiDAR layers render as a continuous elevation surface with a live readout that streams values under the cursor as you move.
+
+**Data source:** USGS 3DEP project CA_SolanoCounty_A23 — 43.6 billion points collected Dec 2022 – Feb 2023 by Sanborn using a Leica TerrainMapper (1,800 Hz pulse rate). QL1 quality: ≤10 cm vertical accuracy on bare earth.
+
+## Three elevation models
+
+The raw point cloud was classified and rasterized into three complementary surfaces:
+
+| Model | What it measures | Example value | Use case |
+|-------|-----------------|---------------|----------|
+| **DSM** (Digital Surface Model) | Top of everything — rooftops, tree canopy, ground | 125.3 ft | Surface elevation, what you'd see from above |
+| **DTM** (Digital Terrain Model) | Bare earth only — buildings and vegetation removed | 98.2 ft | Flood analysis, grading, drainage design |
+| **CHM** (Canopy Height Model) | Height above ground (DSM − DTM) | 27.1 ft | Building height estimates, tree canopy assessment |
+
+The math is simple: **CHM = DSM − DTM**. A CHM of 0 means open ground. CHM of 15–40 ft is a typical house or residential tree. CHM over 50 ft is a tall structure or mature tree.
+
+## What the tool does
+
+`get_elevation` takes an APN or coordinate and returns all three values in feet (NAVD88 datum).
+
+```
+User: "How tall is the building at 675 Texas St?"
+
+→ geocode_address("675 Texas St, Fairfield")
+→ get_elevation(lat, lon)
+→ DSM: 72.4 ft, DTM: 48.1 ft, CHM: 24.3 ft
+→ "The building is approximately 24 feet tall (2 stories)"
+```
+
+The AI chains elevation with other tools naturally — combining flood zone queries with DTM to check if a property sits below the Base Flood Elevation, or using CHM to estimate whether a building meets height limits in a zoning district.
+
+## Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `apn` | string | one of these | Assessor's Parcel Number — queries at parcel centroid |
+| `latitude` | number | one of these | WGS84 latitude |
+| `longitude` | number | one of these | WGS84 longitude |
+
+No zoom or resolution parameter — the query always samples at the native 1-foot pixel resolution.
+
+## Pipeline: from point cloud to queryable surface
+
+```
+43.6 billion LiDAR points (80.6 GB LAZ)
+        │
+        ▼  PDAL classification
+Ground / Vegetation / Building / Noise
+        │
+        ├─── Ground points ──► interpolate ──► DTM (bare earth raster)
+        ├─── All first-returns ──► interpolate ──► DSM (surface raster)
+        └─── DSM − DTM ──────────────────────► CHM (canopy height raster)
+        │
+        ▼  Cloud Optimized GeoTIFF (DEFLATE)
+        │
+        ▼  Uploaded to ArcGIS Online
+        │
+        ▼  TiledImageServer (LERC2D tiles)
+        │
+        ├──► sage-gis: pixel-level queries via MCP tool
+        └──► sage-map: rendered layers + live elevation readout
+```
+
+### Processing
+
+The raw LAZ tiles (3,790 files covering 905 square miles) were processed with a Python pipeline using **PDAL** for point classification, **laspy** for point cloud I/O, and **WhiteboxTools** for raster generation. Ground classification separates earth returns from buildings and vegetation. Ground points get interpolated to a 1-foot DTM; first-return/highest points produce the DSM; the CHM is simply the difference.
+
+The output rasters are Cloud Optimized GeoTIFFs with DEFLATE compression, uploaded to ArcGIS Online as hosted TiledImageServers. ArcGIS serves them as **LERC2D** (Limited Error Raster Compression) tiles — 256×256 pixels per tile across 9 levels of detail.
+
+## How queries work
+
+Both sage-gis (AI tool) and sage-map (mouse-over readout) use the same approach: fetch a single LERC tile and sample the pixel value directly. No REST identify calls — just tile math.
+
+### Step by step
+
+1. **Project coordinates** — Input WGS84 lat/lon is projected to NAD83 CA State Plane Zone 2 (US feet) via `proj4`.
+
+2. **Calculate tile address** — From the State Plane coordinates, compute which 256×256-pixel tile contains the point and which pixel within that tile:
+   ```
+   tileWidth = 256 pixels × 1 ft/pixel = 256 ft
+   col = floor((x − originX) / tileWidth)
+   row = floor((originY − y) / tileWidth)
+   px  = floor((x − originX) / resolution) mod 256
+   py  = floor((originY − y) / resolution) mod 256
+   ```
+
+3. **Fetch LERC tile** — Request `{serviceUrl}/tile/9/{row}/{col}` (level 9 = native 1-foot resolution). The response is a binary LERC2D payload.
+
+4. **Decode with WASM** — The `lerc` library (WebAssembly module) decompresses the tile into a Float32Array of 65,536 elevation values plus a NoData mask.
+
+5. **Sample pixel** — Index into the array at `py × 256 + px`. Check the mask bit — if 0, the pixel is NoData (water, data gap). Otherwise, the value is elevation in feet.
+
+6. **Return all three** — DSM, DTM, and CHM are queried in parallel (`Promise.allSettled`). CHM values below 0 are clamped (LiDAR processing artifact). All values rounded to 0.1 ft.
+
+## Live elevation readout on the map
+
+When a LiDAR layer is visible on the interactive map, a widget appears in the bottom-right showing the elevation value under the cursor — updating continuously as the mouse moves.
+
+The implementation (`useElevationReadout` hook in sage-map):
+
+- **Pointer-move listener** — Fires on every cursor movement over the map view. Converts screen position to WGS84 to State Plane.
+- **LRU tile cache** — Keeps the 16 most recently fetched tiles per service in memory. If the cursor stays in the same area, pixel lookups are instant (no network).
+- **Throttled fetches** — When the cursor moves to an uncached tile, fetch requests are throttled to ~3/sec to avoid overwhelming the service.
+- **LERC in the browser** — The same WASM decoder is used client-side, loaded from a vendored copy in `/public/wasm/` (bypasses bundler issues with the npm package's ESM/WASM import pattern).
+- **Widget display** — Shows `SURFACE 17.8 ft`, `GROUND 12.3 ft`, or `CANOPY 5.5 ft` depending on which model is active. The label changes when the user toggles between DSM/DTM/CHM.
+
+The three layers are configured as an **exclusive group** — radio-button behavior where only one is visible at a time. Toggle in the layer list to switch between surface, ground, and canopy views.
+
+## Null values and edge cases
+
+DTM and CHM return null on large building footprints. This is expected — the LiDAR ground classification can't "see through" wide structures to determine the ground elevation underneath. DSM still returns the rooftop value. The AI explains this when it happens rather than treating it as missing data.
+
+All three models return null over open water (rivers, sloughs, ponds) and at the county boundary edge.
+
+## Limitations
+
+- **Currency:** Winter 2022–2023 snapshot. Structures built after February 2023 don't appear in DSM/CHM.
+- **Deciduous trees:** Collected in winter when leaves were off. CHM underestimates canopy height for deciduous species.
+- **Building interiors:** DTM/CHM null on large footprints (warehouses, malls). DSM gives rooftop only.
+- **Vertical datum:** NAVD88 in feet. Not directly comparable to GPS ellipsoid heights without a geoid correction.
