@@ -1,0 +1,146 @@
+---
+title: "sage-gis"
+description: "Spatial and GIS MCP server — 28 tools for property, maps, hazards, and more"
+---
+
+**Repository:** `solano-gis/sage-gis` | **Endpoint:** `sage-gis.vercel.app/api/mcp` | **Tech:** Next.js 15, MCP handler, ArcGIS REST APIs
+
+sage-gis is the spatial data engine. It provides 28 MCP tools for querying ArcGIS services, rendering maps, looking up properties, and analyzing hazards. All queries are read-only against public services.
+
+<Note>
+sage-gis does **not** use the @arcgis/core SDK. All GIS queries go through ArcGIS REST APIs via HTTP. This keeps the server lightweight and avoids SDK licensing complexity.
+</Note>
+
+## Tool inventory (28 tools)
+
+### Property (8 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `geocode_address` | Address → coordinates + APN |
+| `get_parcel_details` | Full property info (assessment, building, Williamson Act, geometry) |
+| `get_zoning` | Zoning code with automatic city/county jurisdiction routing |
+| `get_flood_zone` | FEMA flood zone, SFHA status, base flood elevation |
+| `get_fire_hazard_zone` | CAL FIRE FHSZ (Moderate/High/Very High), defensible space requirements |
+| `get_supervisor_district` | Board of Supervisors district + supervisor contact |
+| `get_special_districts` | Fire, water, garbage, school, cemetery, GSA districts |
+| `find_nearby` | POIs within radius (schools, parks, fire stations, hospitals, libraries) |
+
+### Search (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `search_parcels` | Bulk parcel search by zoning, use, acreage, value, year built, amenities |
+| `find_nearby_parcels` | All parcels within buffer radius (for notification lists, capped at 250) |
+
+### Maps (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `show_map` | Render static map image (inline) or open interactive canvas panel |
+| `update_map` | Navigate, toggle layers, highlight parcels, add overlays (client-side) |
+
+### Directions (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `get_directions` | Turn-by-turn directions + distance/time + route polyline |
+| `get_travel_time` | Just distance and time (concise output) |
+
+### Elevation (1 tool)
+
+| Tool | Purpose |
+|------|---------|
+| `get_elevation` | LiDAR-derived DSM/DTM/CHM at any point (2023, 1-foot resolution) |
+
+### Place search (1 tool)
+
+| Tool | Purpose |
+|------|---------|
+| `search_places` | Unified location search — auto-detects place names, addresses, APNs, ZIP codes, coordinates |
+
+### GIS layer catalog (6 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `list_gis_categories` | All available layer categories |
+| `list_gis_layers` | Layers by category/priority with service URLs |
+| `get_gis_layer_details` | Full layer metadata, fields, download options |
+| `search_gis_layers` | Keyword search across layer catalog |
+| `suggest_layers` | Match natural language questions to relevant layers |
+| `list_gis_downloads` | Available file downloads (Shapefile, Geodatabase, LiDAR) |
+
+### Geoprocessing (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `dissolve_layer` | Dissolve shapefile by attribute (e.g., parcels → school district boundaries) |
+| `inspect_layer` | Inspect field names and types before processing |
+
+### Image generation (2 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `generate_infographic` | AI-generated diagrams, slides, org charts from text |
+| `edit_image` | Restyle or modify existing images |
+
+### Imagery (1 tool)
+
+| Tool | Purpose |
+|------|---------|
+| `get_oblique_imagery` | Angled aerial photos (N/S/E/W + nadir) from Sanborn surveys 2022-2024 |
+
+### Reference (1 tool)
+
+| Tool | Purpose |
+|------|---------|
+| `get_layer_context` | Field meanings, data quality gotchas, query patterns for specific layers |
+
+## External data sources
+
+### Solano County ArcGIS Online
+```
+Base: https://services2.arcgis.com/SCn6czzcqKAFwdGU/ArcGIS/rest/services
+├── Parcels_Public_Aumentum/FeatureServer/0    (parcels + assessment)
+├── Address_Points/FeatureServer/0              (geocoding)
+├── CityBoundary/FeatureServer/2               (city boundaries)
+├── County_Boundary/FeatureServer/1            (county boundary)
+├── SolanoCountyZoning_092322/FeatureServer/4  (county zoning)
+└── BOS_District_Boundaries_2021/FeatureServer/0  (supervisor districts)
+```
+
+### City zoning (7 cities)
+Benicia, Dixon, Fairfield, Rio Vista, Suisun City, Vacaville, Vallejo — each has its own FeatureServer for zoning. `get_zoning` auto-routes based on whether the location is inside a city boundary.
+
+### Federal/State services
+- **FEMA:** `hazards.fema.gov` — National Flood Hazard Layer
+- **CAL FIRE:** `services.gis.ca.gov` — Fire Hazard Severity Zones
+- **CA Geological Survey** — Earthquake faults, landslide zones
+- **ESRI Living Atlas** — US Census ACS demographics
+
+## Layer catalog
+
+The GIS layer catalog (`data/gis-layers.json`, 3,276 lines) defines 80+ queryable layers across 11 categories:
+
+| Category | Examples |
+|----------|---------|
+| `property` | Parcels, address points, building footprints |
+| `zoning` | County + 7 city zoning districts, general plans |
+| `hazards` | Flood zones, fire hazard, earthquake faults |
+| `districts` | Supervisors, Congressional, State Assembly/Senate |
+| `services` | Garbage, water, fire districts |
+| `poi` | Schools, parks, hospitals, libraries, transit |
+| `infrastructure` | Roads, bridges, culverts |
+| `emergency` | Real-time OES incidents |
+| `environmental` | Farmland, conservation, soils |
+| `demographics` | Census tracts (ACS 5-year) |
+| `basemap` | Aerial imagery (2004-2025) |
+
+## API routes
+
+| Route | Purpose |
+|-------|---------|
+| `/api/mcp` | MCP HTTP endpoint — all 28 tools |
+| `/api/map` | Static map rendering (show_map inline images) |
+| `/api/arcgis-route` | Routing proxy for driving directions |
+| `/api/oblique-preview` | COG preview proxy for oblique imagery |

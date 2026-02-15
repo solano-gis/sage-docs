@@ -1,0 +1,109 @@
+---
+title: "sage-web"
+description: "Chat UI and AI orchestration — where the intelligence lives"
+---
+
+**Repository:** `solano-gis/sage-web` | **Deployed to:** Vercel (private URL) | **Tech:** Next.js 15, AI SDK v6, Claude Opus 4.6
+
+sage-web is the orchestration layer. It hosts the chat interface, manages AI conversations, connects to MCP servers, handles map screenshots, and enforces policy (authentication, disclaimers, rate limiting).
+
+## What it does
+
+1. **Chat interface** — React-based conversational UI with streaming responses
+2. **AI orchestration** — Sends user messages + map context to Claude, manages multi-step tool chains
+3. **MCP client** — Creates per-request HTTP connections to sage-gov and sage-gis
+4. **Map bridge** — Communicates with sage-map iframe via postMessage for map commands and screenshots
+5. **Token optimization** — Strips old screenshots, manages context window within 200K limit
+6. **Policy layer** — System prompt, disclaimers, topic scoping, chain limits
+
+## Request lifecycle
+
+```
+Browser (Chat.tsx)
+  ↓ user message + map state + screenshot
+/api/chat (Next.js route)
+  ↓ converts UI messages → model messages
+  ├── Injects map screenshot as image part
+  ├── Optimizes token budget (strips old images)
+  ├── Connects to MCP servers (sage-gov + sage-gis in parallel)
+  ↓
+Claude Opus 4.6 (with up to 59 tools)
+  ├── Reads user question + map screenshot
+  ├── Chains 5-8 tool calls per typical query
+  ├── Tools execute server-side (MCP) or client-side (map commands)
+  ↓
+Response streams back to browser
+  └── ToolResult.tsx renders maps, data, tool results
+```
+
+## Dynamic tool loading
+
+Instead of sending all 59 tool schemas (~16K tokens) on every request, tools are split into **core** (always available) and **groups** (loaded on demand):
+
+**14 core tools** (~5K tokens) — always available:
+- Property: `geocode_address`, `get_parcel_details`, `get_zoning`, `get_flood_zone`, `get_fire_hazard_zone`, `get_elevation`, `get_special_districts`, `find_nearby`
+- Maps: `show_map`, `update_map`, `locate_in_view`, `query_map_features`
+- Reference: `get_solano_context`, `get_layer_context`
+- Meta: `load_tool_group`
+
+**11 on-demand groups** — loaded when Claude calls `load_tool_group()`:
+
+| Group | Tools | Purpose |
+|-------|-------|---------|
+| `county_code` | 4 | Zoning code, subdivisions, code sections |
+| `budget` | 6 | Department budgets, staffing, revenue |
+| `general_plan` | 7 | Land use policies, housing, agriculture |
+| `org_chart` | 6 | Departments, divisions, positions |
+| `directions` | 2 | Driving directions, travel time |
+| `gis_layers` | 6 | GIS data catalog, layer search, downloads |
+| `geoprocessing` | 2 | Dissolve shapefiles, inspect layers |
+| `meetings` | 5 | Board/committee agendas and minutes |
+| `image_gen` | 2 | Infographics, image editing |
+| `parcels` | 2 | Bulk parcel search, buffer/notification lists |
+| `oblique` | 1 | Oblique aerial imagery |
+
+This cuts schema overhead by ~50% while preserving full capability.
+
+## System prompt
+
+The system prompt in `lib/prompts.ts` (~25K characters) governs SAGE's behavior:
+
+- **Personality:** Friendly, concise, proactive with maps, honest about limits
+- **Scope:** Solano County focus (7 cities + unincorporated), graceful off-topic redirects
+- **Jurisdiction routing:** Automatic detection that mailing address ≠ legal jurisdiction
+- **Response scaling:** Quick answers for simple lookups, deep dives for policy research
+- **Tool chaining patterns:** Predefined workflows for common question types
+- **Sensitive topics:** Language rules for fire zones, flood zones, zoning, property boundaries
+
+The prompt is split into two parts for **prompt caching**: a static base (~4K tokens, cached 5 minutes) and dynamic map context (per-request). This saves ~90% on input token costs across multi-step chains.
+
+## Token optimization
+
+After 1-2 tool calls with map screenshots, context can approach the 200K limit. `optimizeTokenBudget()` runs before every AI call:
+
+1. Strips base64 image blobs from old tool results (Claude has already analyzed them)
+2. Keeps only the latest screenshot; removes older ones
+3. Limits reasoning to 10 steps to prevent runaway chains
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `app/api/chat/route.ts` | Main API handler — MCP connections, AI streaming, tool orchestration |
+| `lib/prompts.ts` | System prompt — AI behavioral guide |
+| `lib/tool-groups.ts` | Core tools + on-demand group definitions |
+| `lib/mcp.ts` | Dual MCP client factory (sage-gov + sage-gis) |
+| `lib/token-budget.ts` | Context window optimization |
+| `lib/locate-in-view.ts` | Gemini Flash vision detection pipeline |
+| `components/Chat.tsx` | Main chat UI component |
+| `components/ToolResult.tsx` | Tool call rendering + client-side map commands |
+| `hooks/useMapPostMessage.ts` | iframe communication, screenshot validation |
+| `hooks/useMapPanel.ts` | Map panel state, command queue |
+
+## Client-side vs server-side tools
+
+Most tools execute on the MCP servers (sage-gov, sage-gis). One tool executes in the browser:
+
+- **`update_map`** — Navigation, layer visibility, parcel highlights, overlays
+
+This tool is intercepted by `ToolResult.tsx`, which sends a postMessage to the sage-map iframe. The iframe executes the command, captures a screenshot, and sends it back. This enables instant map manipulation without a server round-trip.

@@ -1,0 +1,118 @@
+---
+title: "Risk & Governance"
+description: "How SAGE addresses organizational risk for government IT adoption"
+---
+
+This page is for technical decision makers evaluating whether SAGE's architecture conveys organizational risk. It addresses the questions an IT governance review would ask.
+
+## What data does the AI access?
+
+<Note>
+SAGE queries the same public data sources that already power the county's existing web applications. It cannot access any data that isn't already publicly available.
+</Note>
+
+| Data source | Access method | Sensitivity | Write access |
+|-------------|--------------|-------------|-------------|
+| Parcels, zoning, hazards | ArcGIS REST (public FeatureServer) | Public | None |
+| County Code | Static JSON (bundled at deploy) | Public | None |
+| General Plan | Static JSON (bundled at deploy) | Public | None |
+| FY2025-26 Budget | Static JSON (bundled at deploy) | Public | None |
+| Org chart / positions | Static JSON (bundled at deploy) | Public | None |
+| Meeting minutes | Static JSON (bundled at deploy) | Public | None |
+| Aerial imagery | ArcGIS tile services | Public | None |
+| FEMA flood zones | Federal MapServer | Public | None |
+| CAL FIRE hazard zones | State MapServer | Public | None |
+
+**No access to:** Internal networks, employee records, financial systems, email, Active Directory, or any non-public county system.
+
+## What can go wrong?
+
+### AI gives wrong information
+
+**Risk:** Claude misinterprets zoning codes, hallucinates permit exemptions, or chains tools incorrectly.
+
+**Mitigation:**
+- Every answer cites specific data sources (parcel numbers, code sections, policy numbers)
+- System prompt instructs the AI to report data, not give advice
+- Disclaimers on every response: "This is for informational purposes only"
+- Users can verify any claim by clicking through to source data
+- Role-based deployment tiers with proportional guardrails
+
+### Service goes down
+
+**Risk:** Vercel outage or deployment failure.
+
+**Mitigation:**
+- Four independent services — each fails independently
+- sage-gov and sage-gis continue working if sage-web is down (they're standard MCP servers)
+- sage-map continues as a standalone map viewer
+- No shared database or state between services
+- Vercel provides 99.99% uptime SLA on Pro plan
+
+### Model provider changes
+
+**Risk:** Anthropic changes pricing, availability, or capabilities of Claude.
+
+**Mitigation:**
+- sage-web supports multiple model providers (Claude, GPT, Gemini) via Vercel AI SDK
+- MCP servers are model-agnostic — any AI system can consume them
+- Tool definitions and data pipelines are independent of the AI model
+- Switching models requires changing one configuration value
+
+### Prompt injection or adversarial use
+
+**Risk:** Users craft inputs that cause the AI to behave unexpectedly.
+
+**Mitigation:**
+- System prompt constrains behavior to Solano County topics
+- Input classification layer (planned for public deployment)
+- Output validation layer scans for inappropriate recommendations
+- All conversations can be logged and audited
+- Rate limiting prevents abuse
+- Structured entry points for public tier (guided workflows, not free chat)
+
+## Deployment tiers
+
+SAGE is designed for progressive deployment with increasing guardrails:
+
+| Tier | Audience | Size | Guardrails |
+|------|----------|------|-----------|
+| **1 — GIS Staff** | Ryan's team | ~5 | Minimal. Professional users who know the data. |
+| **2 — County Staff** | Planners, Resource Mgmt, Econ Dev | ~20-50 | Azure AD SSO, topic scoping, strong disclaimers, 10-step chain cap |
+| **3 — Public** | Citizens, businesses | Unlimited | Input classifier, output validator, structured entry points, 5-step cap |
+
+Each tier is a separate deployment configuration of the same codebase. The architecture doesn't change — only the policy layer in sage-web.
+
+## Vendor dependencies
+
+| Dependency | Vendor | Cost | Alternatives | Lock-in risk |
+|-----------|--------|------|-------------|-------------|
+| AI model | Anthropic (Claude) | Usage-based | OpenAI, Google | Low — AI SDK abstracts providers |
+| Hosting | Vercel | ~$20/mo per service | Any Node.js host | Low — standard Next.js |
+| GIS services | Esri (ArcGIS Online) | Existing county license | — | Already committed county-wide |
+| Map SDK | Esri (@arcgis/core) | Included in license | OpenLayers, Mapbox | Medium — significant rewrite |
+| Image generation | FAL.ai | Usage-based | Any image API | Low — single tool |
+| Vision detection | Google (Gemini Flash) | Usage-based | Any vision model | Low — single tool |
+
+**Key point:** SAGE runs on top of the county's existing ArcGIS investment. It doesn't replace Esri — it makes the existing infrastructure more accessible.
+
+## What SAGE is not
+
+- **Not a replacement for GIS staff.** It's a tool that makes their expertise more accessible.
+- **Not a decision-making system.** It retrieves and synthesizes data. Decisions remain with humans.
+- **Not connected to internal systems.** It queries the same public data as any county website visitor.
+- **Not a black box.** Every tool call, data source, and response is traceable and auditable.
+- **Not dependent on a single vendor.** The AI model, hosting, and data sources are all substitutable.
+
+## Integration with existing infrastructure
+
+SAGE is designed to integrate, not replace:
+
+- **ArcGIS Online** — Queries existing published services. No new services required.
+- **County website** — Can be embedded as a component or linked as a standalone tool.
+- **Azure AD** — Planned SSO integration for staff deployment (Tier 2).
+- **Existing workflows** — Staff continue using ArcGIS Pro, the parcel viewer, and other tools. SAGE is additive.
+
+## Open source
+
+All SAGE repositories are in the `solano-gis` GitHub organization. The architecture is designed to be replicable by any county with ArcGIS services — swap the data endpoints, update the system prompt, deploy.

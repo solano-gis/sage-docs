@@ -1,0 +1,113 @@
+---
+title: "Architecture"
+description: "Four-service architecture designed for governance, not just convenience"
+---
+
+SAGE is split across four independent Vercel deployments. This isn't a microservices fetish — it's a governance decision. Each service has a clear, defensible answer to two questions any IT review will ask:
+
+1. **What data does the AI have access to?**
+2. **What happens if it breaks?**
+
+## System diagram
+
+```
+┌─────────────────────────────────────────────────┐
+│                   sage-web                       │
+│          Chat UI + AI Orchestration              │
+│       (Claude Opus 4.6, Vercel AI SDK)          │
+└──────┬──────────────┬──────────────┬────────────┘
+       │ MCP/HTTP     │ MCP/HTTP     │ iframe postMessage
+       ▼              ▼              ▼
+┌──────────┐  ┌──────────┐  ┌──────────────────┐
+│ sage-gov │  │ sage-gis │  │    sage-map       │
+│ 31 tools │  │ 28 tools │  │ ArcGIS Maps SDK  │
+│ Records  │  │ Spatial  │  │ Interactive map   │
+└──────────┘  └──────────┘  └──────────────────┘
+```
+
+## Service boundaries
+
+<AccordionGroup>
+  <Accordion title="sage-web — Chat UI + AI orchestration">
+    **What it does:** Hosts the chat interface, manages conversations, orchestrates AI tool calls, handles map screenshots, optimizes token budgets.
+
+    **What it accesses:** Only what sage-gov and sage-gis return via MCP. Cannot query databases or GIS services directly. This is the governance surface — authentication, moderation, audit logging, disclaimers, and rate limiting live here.
+
+    **If it breaks:** No chat. sage-gov and sage-gis continue serving data to any other MCP client. sage-map continues as a standalone map viewer.
+  </Accordion>
+
+  <Accordion title="sage-gov — Public records MCP server">
+    **What it does:** Searches and retrieves public government documents — budget, county code, General Plan, organizational chart, Board of Supervisors meeting minutes.
+
+    **What it accesses:** Static JSON and SQLite files bundled at deploy time. All data is already public. No external API calls. No write access to anything.
+
+    **If it breaks:** Property research, map tools, and spatial queries continue working. Only budget/code/plan questions are affected.
+  </Accordion>
+
+  <Accordion title="sage-gis — Spatial/GIS MCP server">
+    **What it does:** Queries ArcGIS REST services for parcels, zoning, hazards, elevation, directions, and map rendering. Generates static map images and infographics.
+
+    **What it accesses:** Public ArcGIS FeatureServer and MapServer endpoints — the same services that power the county's existing public parcel viewer. Read-only. Cannot modify any GIS data.
+
+    **If it breaks:** Budget, code, and plan queries continue working. Map rendering and property lookups are affected.
+  </Accordion>
+
+  <Accordion title="sage-map — Interactive ArcGIS map">
+    **What it does:** Renders an interactive ArcGIS web map embedded as an iframe. Accepts commands (pan, zoom, highlight parcels, toggle layers) and returns screenshots for AI vision.
+
+    **What it accesses:** ArcGIS Online web maps via the standard Maps SDK. Same data as any ArcGIS web application. No MCP tools. No AI. Pure visualization.
+
+    **If it breaks:** Chat and all tool queries continue working. Users lose the interactive map but still get inline map images from sage-gis.
+  </Accordion>
+</AccordionGroup>
+
+## Data flow
+
+### User asks a question
+
+```
+1. User types "Tell me about 123 Main St, Fairfield"
+2. sage-web captures map screenshot + map state (center, zoom, layers)
+3. sage-web sends message + screenshot to Claude Opus 4.6
+4. Claude decides to call geocode_address → get_parcel_details → get_zoning → get_flood_zone → show_map
+5. Each tool call → MCP HTTP request to sage-gis
+6. sage-gis queries ArcGIS REST → returns structured data
+7. Claude synthesizes results into a natural language response
+8. Response streams back to the browser with inline map and data
+```
+
+### AI controls the map
+
+```
+1. Claude calls update_map({ highlight_apns: ["003-025-102"], zoom: 17 })
+2. sage-web posts command to sage-map iframe via postMessage
+3. sage-map executes: highlights parcel, zooms in, waits for render
+4. sage-map captures 1092×1092 screenshot
+5. sage-map sends screenshot back via postMessage
+6. sage-web attaches screenshot to next AI context
+7. Claude can now describe what it sees on the map
+```
+
+## Why four services instead of one
+
+| Concern | Monolith | Four services |
+|---------|----------|---------------|
+| **Security review** | "The AI can access everything" | Each service has an explicit, bounded data scope |
+| **Failure blast radius** | Everything goes down together | Services fail independently |
+| **Deployment** | One change redeploys everything | Deploy only what changed |
+| **Access control** | One permission model | Each service can have different auth |
+| **Compliance** | Hard to audit | Each service has a clear data inventory |
+| **Scaling** | Scale everything or nothing | Scale hot services independently |
+
+## Deployment
+
+All four services deploy to Vercel via GitHub push-to-deploy:
+
+| Service | Repository | URL |
+|---------|-----------|-----|
+| sage-web | `solano-gis/sage-web` | (private) |
+| sage-gis | `solano-gis/sage-gis` | `sage-gis.vercel.app/api/mcp` |
+| sage-gov | `solano-gis/sage-gov` | `sage-gov.vercel.app/api/mcp` |
+| sage-map | `solano-gis/sage-map` | `sage-map.vercel.app` |
+
+Each repo has its own `CLAUDE.md` with service-specific development context.

@@ -1,0 +1,144 @@
+---
+title: "Map Protocol"
+description: "PostMessage contract between sage-web and sage-map"
+---
+
+sage-web and sage-map communicate via `window.postMessage`. This is the contract that makes the "cowork map" possible — the AI controls a map that the user sees, and the user interacts with a map that the AI sees.
+
+## Transport rules
+
+All messages must include:
+
+| Field | Required | Value |
+|-------|----------|-------|
+| `source` | Yes | `'sage-chat'` (parent) or `'sage-map'` (iframe) |
+| `type` | Yes | Message discriminator (see registry below) |
+| `mapId` | iframe→parent | Identifies which map instance sent the message |
+| `payload` | Yes | Message data object |
+
+Origins are allowlisted on both sides (`SAGE_MAP_ORIGIN` in production, `localhost` in dev).
+
+## Message registry
+
+### Iframe → Parent
+
+| Type | Payload | When |
+|------|---------|------|
+| `map-ready` | `{ version }` | Iframe loaded, ready for commands. Parent flushes queued commands. |
+| `view-changed` | `MapStateSnapshot` | Debounced updates while user pans/zooms. |
+| `state-snapshot` | `MapStateSnapshot` | Response to explicit `request-state`. |
+| `command-ack` | `{ commandId, commandType, applied, details }` | Command completed. `details.screenshotDataUrl` included when available. |
+| `parcel-clicked` | `ParcelClickedPayload` | User clicked a parcel. |
+| `identify-result` | `IdentifyResultPayload` | User clicked identify — all features at point + screenshot. Triggers AI auto-send. |
+| `selection-changed` | `SelectionPayload` | Shift+click add/remove/clear. All selected features + count + action type. |
+| `screenshot` | `{ dataUrl, error? }` | Response to `request-screenshot` (fallback path). |
+
+### Parent → Iframe
+
+| Type | Payload | When |
+|------|---------|------|
+| `map-command` | `{ commandId, command }` | Typed `MapCommand` union — the AI controlling the map. |
+| `request-state` | `{}` | Ask iframe to post current `state-snapshot`. |
+| `request-screenshot` | `{ width, height }` | Manual screenshot (fallback if command-ack missed). |
+
+## MapCommand types
+
+The `command` field in `map-command` is a discriminated union:
+
+| Command | Parameters | Effect |
+|---------|-----------|--------|
+| `goto` | `center`, `zoom`, `apn`, `apns`, `extent` | Navigate to location |
+| `highlight-apns` | `apns[]` | Highlight parcels (orange outlines) |
+| `clear-highlights` | — | Remove all highlights |
+| `set-layers-visible` | `layers: [{ title, visible }]` | Toggle layer visibility |
+| `add-layer` | `url`, `title`, `layerType`, `opacity` | Add external service overlay |
+| `remove-layer` | `title` | Remove an added overlay |
+| `set-preset` | `preset` | Switch entire web map (parcels, planning, hazards, master) |
+
+## Command lifecycle
+
+```
+1. Parent creates commandId, posts map-command
+2. Parent records send timestamp (for latency metrics)
+3. If iframe not ready, command queued until map-ready
+4. Iframe receives command, adds to FIFO queue
+5. Iframe executes command, waits for render settle
+6. Iframe captures screenshot (1092×1092 JPEG, 75%)
+7. Iframe sends command-ack with screenshotDataUrl
+8. Parent correlates ack to commandId, stores screenshot
+9. Screenshot attached to next AI context
+```
+
+### Ack semantics
+
+- `applied: true` — command completed as intended
+- `applied: false` — no-op, blocked, or failed (with `details.reason`)
+
+## Screenshot pipeline
+
+### Capture
+1. Command executes (pan, zoom, highlight, layer toggle)
+2. Wait for `view.updating === false`
+3. Additional 200ms settle buffer
+4. Capture via `view.takeScreenshot()` at 1092×1092 JPEG 75%
+
+### Validation (parent side)
+Before attaching to AI context, parent validates:
+1. Valid image data URL format
+2. Minimum base64 size threshold
+3. Image decode succeeds
+4. Minimum dimensions threshold
+
+### Fallback
+If validation fails:
+1. Retry screenshot capture once
+2. If still invalid, set `noVision = true` with reason
+3. System prompt injects `NO_VISION_MARKER` — tells Claude not to make visual claims
+
+## State model
+
+```
+MapStateSnapshot {
+  center: { latitude, longitude }
+  zoom: number
+  scale: number
+  extent: { xmin, ymin, xmax, ymax }
+  rotation: number
+  visibleLayers: string[]
+  highlightedApns: string[]
+  preset: string
+  webMapId: string
+}
+```
+
+- Parent stores snapshots keyed by `mapId`
+- `PANEL_MAP_ID` (`sage-canvas-map`) identifies the persistent side panel
+- For relative operations (pan north 50%), parent reads current panel snapshot first
+
+## Canonical source
+
+<Warning>
+The TypeScript types for this protocol live in **sage-map**:
+
+```
+sage-map/lib/shared/map-protocol/index.ts    ← CANONICAL (edit here)
+sage-web/lib/shared/map-protocol/index.ts    ← COPY (must match)
+```
+
+After editing the canonical file, copy it to sage-web and run `npm test` in sage-web to verify the checksum matches. The sync test will fail on any divergence.
+</Warning>
+
+## Observability
+
+Parent tracks reliability metrics:
+
+| Metric | What it measures |
+|--------|-----------------|
+| `map.command-sent` | Command dispatched |
+| `map.command-ack` | Ack received |
+| `map.command-ack-latency` | Round-trip time |
+| `map.command-ack-mismatch` | Ack for unexpected commandId |
+| `screenshot.command-ack-timeout` | No ack within timeout |
+| `screenshot.invalid` | Screenshot failed validation |
+| `screenshot.retry-success` | Retry produced valid screenshot |
+| `screenshot.retry-failed` | Both attempts failed → noVision |

@@ -1,0 +1,101 @@
+---
+title: "sage-map"
+description: "Interactive ArcGIS map — the shared visual workspace"
+---
+
+**Repository:** `solano-gis/sage-map` | **Deployed to:** `sage-map.vercel.app` | **Tech:** Next.js 15, @arcgis/core 4.34
+
+sage-map is the interactive map component. It runs as a standalone Next.js application embedded as an iframe in sage-web. It has **zero MCP tools** and **zero AI** — it is purely a visualization and interaction layer.
+
+The key innovation: SAGE and the user share this map. When the AI highlights parcels or toggles layers, the user sees it happen in real time. When the user clicks a parcel, the AI sees the result. This "cowork" architecture is what makes SAGE conversations genuinely spatial.
+
+## Capabilities
+
+### Map presets
+
+Four pre-configured ArcGIS Online web maps, switchable on demand:
+
+| Preset | Web Map ID | Layers |
+|--------|-----------|--------|
+| `parcels` | `cb295007...` | Parcels with APN labels, address points, city/county boundaries |
+| `planning` | `ad2ccb37...` | Zoning districts, general plan designations |
+| `hazards` | `1522f216...` | FEMA flood zones, fire hazard severity, earthquake faults |
+| `master` | `aefdec7f...` | All layers combined (30+) |
+
+### Layer management
+
+- **30+ data layers** including aerials (2004-2025), parcels, zoning (county + 7 cities), general plans, flood zones, fire hazard, LiDAR, demographics, earthquake faults
+- **Layer pairs** — VectorTileLayer (fast rendering) paired with FeatureLayer (queries/identify). Visibility synced automatically.
+- **Dynamic layers** — External REST services can be added at runtime via `add-layer` command
+
+### Parcel interaction
+
+- **Click** → `parcel-clicked` event with APN, address, coordinates
+- **Identify mode** → Click queries all visible layers at point, returns features + screenshot
+- **Multi-select** → Shift+click to build a selection of parcels, then "Ask AI" about the group
+
+### Screenshots for AI vision
+
+After every command or state change:
+1. Map waits for rendering to complete (`view.updating === false` + 200ms buffer)
+2. Captures screenshot at 1092×1092 pixels, JPEG 75% quality
+3. Sends base64 data URL back to sage-web via postMessage
+4. sage-web validates (format, dimensions, decode) with one retry on failure
+5. Screenshot attached to next AI context so Claude can describe what it sees
+
+### High-resolution tiles
+
+Custom `HiResTileLayer` fetches 4 tiles at LOD+1 and composites them into a single tile — giving 2x detail at any zoom level. Essential for readable screenshots.
+
+### Widgets
+
+- Scale bar (bottom-left)
+- Live coordinate display (bottom-right, follows cursor)
+- Layer list with visibility toggles (top-right)
+- Legend (top-right)
+- Basemap gallery (top-right)
+- Search for addresses and parcels (top-left)
+- Identify button (top-left)
+- Selection badge (embed mode, for multi-parcel "Ask AI")
+
+## Embed mode
+
+When loaded with `?embed=true`, sage-map optimizes for iframe context:
+- Hides header/footer
+- Collapses layer list by default
+- Shows selection badge for multi-parcel workflows
+- Posts all events to parent window via postMessage
+
+Typical iframe URL:
+```
+https://sage-map.vercel.app/map?preset=parcels&embed=true&mapId=sage-canvas-map
+```
+
+## File structure
+
+```
+sage-map/
+├── app/
+│   ├── api/arcgis-token/route.ts       ← OAuth token proxy
+│   ├── map/page.tsx                     ← Map page (parses URL params)
+│   └── components/map/
+│       ├── MapContainer.tsx             ← Main map component
+│       ├── hooks/
+│       │   ├── useMapCommands.ts        ← Command handler + screenshots
+│       │   ├── useLayerPairs.ts         ← VectorTile/Feature pair sync
+│       │   ├── useInitialMapView.ts     ← Map initialization
+│       │   ├── useMapWidgets.ts         ← Widget setup
+│       │   ├── useHiResTiles.ts         ← 2× tile supersampling
+│       │   └── useElevationReadout.ts   ← LiDAR display
+│       └── utils/
+│           └── highlightParcels.ts      ← Orange highlight rendering
+├── lib/
+│   ├── shared/map-protocol/index.ts    ← CANONICAL postMessage types
+│   ├── esri/webmaps.ts                 ← Web Map ID registry
+│   └── esri/HiResTileLayer.ts          ← Custom 2× tile layer
+└── next.config.ts                       ← @arcgis/core transpile config
+```
+
+<Warning>
+`lib/shared/map-protocol/index.ts` is the **canonical** copy of the postMessage protocol. sage-web has a copy that must be kept in sync. After editing, copy the file to sage-web and run `npm test` to verify the checksum matches.
+</Warning>

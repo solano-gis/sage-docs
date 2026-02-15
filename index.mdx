@@ -1,97 +1,74 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "What is SAGE?"
+description: "Solano Agent for Geographic Enquiry — an AI-powered GIS assistant for Solano County"
 ---
 
-## Setting up
+SAGE is an AI assistant that integrates Solano County's fragmented data infrastructure into a single conversational interface. It connects live GIS services, public records, regulatory codes, budget documents, and an interactive map — all accessible through natural language.
 
-Get your documentation site up and running in minutes.
+It is not a chatbot. It is a **collaborative spatial analyst** that shares an interactive map with users, autonomously chains multi-step queries across 59 specialized tools, and synthesizes answers grounded in real county data.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
+## What makes SAGE different
 
 <Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+  <Card title="Shared map" icon="map">
+    AI and user see the same interactive ArcGIS map. When SAGE pans, zooms, or highlights parcels, you see it happen. When you click a parcel, SAGE sees it too.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Real data, not training data" icon="database">
+    Every answer comes from live queries to county GIS services, the Assessor's database, county code, General Plan, and budget documents — not model hallucinations.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Autonomous tool chaining" icon="link">
+    Ask one question, get a multi-step analysis. SAGE decides which tools to call, in what order, building on each result. A property research query may chain 5-8 tools automatically.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Four independent services" icon="server">
+    Each service has a clear failure boundary and a defensible answer to "what data does the AI access?" and "what happens if it breaks?"
   </Card>
 </Columns>
 
-## Create beautiful pages
+## Platform at a glance
 
-Everything you need to create world-class documentation.
+| Service | Deployed To | Role | Tools |
+|---------|-------------|------|-------|
+| [sage-web](/services/sage-web) | Vercel | Chat UI + AI orchestration | — |
+| [sage-gis](/services/sage-gis) | `sage-gis.vercel.app` | Spatial/GIS MCP server | 28 |
+| [sage-gov](/services/sage-gov) | `sage-gov.vercel.app` | Public records MCP server | 31 |
+| [sage-map](/services/sage-map) | `sage-map.vercel.app` | Interactive ArcGIS map | — |
+
+## Capabilities
+
+**Property research** — Look up any address or APN. Get parcel details, zoning, flood zones, fire hazard, elevation, school districts, assessed values, building characteristics, and nearby amenities.
+
+**Regulatory analysis** — Search the Solano County Code (zoning, subdivisions, grading, underground utilities). Query the 2008 General Plan across 12 chapters. Find specific policies and implementation programs.
+
+**Budget and staffing** — Search the FY2025-26 Recommended Budget. Explore 3,284 county positions across departments, divisions, and job classifications.
+
+**Spatial queries** — Count features, calculate statistics, and group results across 30+ map layers in any visible extent. Filter by zoning, use code, acreage, assessed value, year built, and more.
+
+**Aerial vision** — AI analyzes map screenshots to detect buildings, pools, solar panels, aircraft, and other features. Converts pixel coordinates to real-world lat/lng for follow-up queries.
+
+**Board of Supervisors** — Search meeting minutes and agendas. Find decisions, votes, and action items by topic or date.
+
+**Driving directions** — Route calculations and travel time between any two locations in the county.
+
+## Who this documentation is for
 
 <Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+  <Card title="AI agents" icon="robot">
+    Future versions of Claude working on this codebase. Architectural decisions, tool inventories, cross-service contracts, and data flow patterns you need to understand before making changes.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="County IT leadership" icon="building-columns">
+    Technical decision makers evaluating whether this architecture conveys organizational risk. How the system is built, what it accesses, how it fails, and why the four-service split matters for governance.
   </Card>
 </Columns>
 
-## Need inspiration?
+## Technology stack
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+| Layer | Technology |
+|-------|-----------|
+| AI model | Claude Opus 4.6 (Anthropic) |
+| Framework | Next.js 15 (App Router) |
+| AI SDK | Vercel AI SDK v6 |
+| Protocol | Model Context Protocol (MCP) over HTTP |
+| GIS | ArcGIS REST APIs + @arcgis/core 4.34 |
+| Deployment | Vercel (all four services) |
+| Vision | Gemini Flash (Google, for object detection) |
+| Image generation | FAL.ai |

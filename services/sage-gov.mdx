@@ -1,0 +1,116 @@
+---
+title: "sage-gov"
+description: "Public records MCP server — 31 tools for budget, code, plans, and meetings"
+---
+
+**Repository:** `solano-gis/sage-gov` | **Endpoint:** `sage-gov.vercel.app/api/mcp` | **Tech:** Next.js 15, MCP handler, SQLite/JSON
+
+sage-gov is the public records engine. It provides 31 MCP tools for searching and retrieving government documents — budget, county code, General Plan, organizational chart, and Board of Supervisors meeting minutes. All data is static, public, and bundled at deploy time.
+
+<Note>
+sage-gov makes **zero external API calls** at runtime. All data is pre-processed JSON files shipped with the deployment. This means zero latency from external services and zero risk of exposing internal systems.
+</Note>
+
+## Tool inventory (31 tools)
+
+### Budget (6 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `search_budget` | Search FY2025-26 Recommended Budget by keyword, department, or section |
+| `get_budget_chunk` | Retrieve full text of a specific budget section |
+| `get_budget_overview` | Document metadata, section list, chunk counts |
+| `get_department_budget` | All budget info for a specific department |
+| `list_budget_departments` | All departments in the budget document |
+| `list_budget_sections` | Major sections (A-N) covering functional areas |
+
+### County Code (4 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `search_county_code` | Keyword search across all available chapters |
+| `get_county_code_sections` | Retrieve full text of specific code sections |
+| `list_county_code_chapters` | All available chapters with article/section counts |
+| `list_county_code_sections` | Browse sections within a specific chapter |
+
+**Available chapters:**
+- Ch. 19: Parks, Recreation and Public Property
+- Ch. 23: Refuse and Garbage
+- Ch. 24: Roads, Streets and Public Property
+- Ch. 26: Subdivisions
+- Ch. 26.5: Underground Utilities
+- Ch. 28: Zoning Regulations (166 sections — the big one)
+- Ch. 30: Address Numbering System
+- Ch. 31: Grading, Drainage, Land Leveling, and Erosion Control
+
+### General Plan (7 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `search_general_plan` | Search across the 2008 General Plan |
+| `search_general_plan_policies` | Search specifically for policies and goals |
+| `get_general_plan_chapter` | Full content of a specific chapter |
+| `get_general_plan_chunk` | Retrieve full text of a specific section |
+| `get_general_plan_overview` | Document metadata and chapter list |
+| `list_general_plan_chapters` | All 12 chapters with chunk counts |
+| `list_general_plan_documents` | All document types (chapters, appendices, EIR) |
+
+**Chapters:** Introduction, Land Use, Agriculture, Resources, Public Health & Safety, Economic Development, Transportation, Public Facilities, Housing Element, Parks & Recreation, Tri-City & County Plan, Suisun Marsh LPP
+
+### Organizational Chart (6 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `get_org_overview` | County-wide stats (3,284 FTE) and department list |
+| `get_department` | Department details with divisions and top positions |
+| `get_division` | Division details with all positions |
+| `get_position_distribution` | Where a job title is allocated across departments |
+| `search_positions` | Search position titles across all departments |
+| `compare_departments` | Side-by-side FTE, divisions, top positions |
+| `list_job_classes` | Job classifications with salary grades |
+
+### Meeting Minutes (5 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `search_meeting_minutes` | Search by keyword, committee, date range |
+| `get_meeting` | All agenda items and/or minutes for a specific meeting |
+| `get_meeting_chunk` | Full text of a specific meeting section |
+| `get_meetings_overview` | Committee info, total meetings, date ranges |
+| `list_meetings` | All available meetings with document availability |
+| `list_committees` | Available committees/boards |
+
+**Committees:** Board of Supervisors (BOS), ReGIS (Regional GIS Consortium)
+
+### Context/Reference (3 tools)
+
+| Tool | Purpose |
+|------|---------|
+| `get_solano_context` | Reference material on specific topics |
+
+**Available topics:** jurisdiction, zoning, prop13, adu, flood, fire, contacts, districts, disclaimers
+
+## Data sources
+
+All data is pre-processed and bundled as JSON files:
+
+| Source | Format | Size | Content |
+|--------|--------|------|---------|
+| County Code | JSON (8 chapter files) | ~1 MB | 8 chapters, 166+ sections |
+| General Plan | JSON | 9 MB | 12 chapters, policies, tables, appendices |
+| Budget | JSON | ~2 MB | FY2025-26 Recommended Budget |
+| Org Chart | JSON | 240 KB | 3,284 positions, departments, divisions |
+| Meeting Minutes | JSON (per committee) | ~500 KB | BOS and ReGIS meetings |
+| Reference docs | Markdown (23 files) | ~200 KB | Zoning codes, flood zones, ADU rules, contacts, etc. |
+
+## Data pipeline
+
+Data is pre-processed offline and committed to the repository:
+
+1. **County Code** — Scraped from Solano County Code website → parsed HTML → structured JSON per chapter
+2. **General Plan** — Extracted from PDF → chunked by section → embedded for semantic search
+3. **Budget** — Extracted from PDF → chunked by department → embedded for semantic search
+4. **Org Chart** — Position Allocation Report + Salary Listing → parsed → structured JSON
+5. **Meeting Minutes** — Scraped from county meeting portal → parsed → structured JSON
+
+Updates require re-running the import scripts and redeploying.

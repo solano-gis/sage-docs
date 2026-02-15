@@ -1,0 +1,99 @@
+---
+title: "MCP Protocol"
+description: "How sage-web connects to sage-gis and sage-gov via Model Context Protocol"
+---
+
+SAGE uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for communication between sage-web and its two data servers. MCP is an open standard for connecting AI models to external tools and data sources.
+
+## How it works
+
+```
+sage-web (MCP client)
+  ├── HTTP POST → sage-gov.vercel.app/api/mcp  (31 tools)
+  └── HTTP POST → sage-gis.vercel.app/api/mcp  (28 tools)
+```
+
+- **Transport:** HTTP (streamable), not stdio
+- **Connection lifecycle:** Per-request. New MCP clients created for each user message, closed after response.
+- **Parallel initialization:** sage-gov and sage-gis clients connect simultaneously
+- **Tool discovery:** Automatic via MCP `tools/list` — sage-web doesn't hardcode tool schemas
+
+## MCP server implementation
+
+Both sage-gov and sage-gis use `mcp-handler` (v1.0.7) to expose tools:
+
+```typescript
+// app/api/mcp/route.ts (simplified)
+import { createMcpHandler } from 'mcp-handler';
+import { tools } from '@/lib/tools/definitions';
+
+const handler = createMcpHandler({
+  name: 'sage-gis',
+  version: '1.0.0',
+  tools,
+});
+
+export { handler as GET, handler as POST, handler as DELETE };
+```
+
+## Tool definition pattern
+
+Tools are defined with Zod schemas and async handlers:
+
+```typescript
+import { defineTool } from '../types';
+import { z } from 'zod';
+
+export const getParcelDetails = defineTool({
+  name: 'get_parcel_details',
+  description: 'Get comprehensive property information for a parcel.',
+  schema: {
+    apn: z.string().optional().describe('Assessor Parcel Number (XXX-XXX-XXX)'),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+  },
+  handler: async ({ apn, latitude, longitude }) => {
+    // Query ArcGIS REST → return structured data
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  },
+});
+```
+
+## Client-side tool execution
+
+One tool — `update_map` — is **not** executed via MCP. It runs in the user's browser:
+
+1. Claude calls `update_map` with navigation/layer/highlight parameters
+2. AI SDK streams the tool call to the browser with `state: 'input-available'`
+3. `ToolResult.tsx` intercepts the call, extracts the command
+4. Command is sent to sage-map iframe via postMessage
+5. sage-map executes, captures screenshot, sends back `command-ack`
+6. `addToolOutput()` returns the result to the AI on the next step
+
+This enables instant map manipulation without a server round-trip.
+
+## Adding a new tool
+
+1. **Define the tool** in the target server's `lib/tools/definitions/` directory
+2. **Register it** in `lib/tools/definitions/index.ts`
+3. **Update sage-web** if needed:
+   - Add to a tool group in `lib/tool-groups.ts` (or create a new group)
+   - Add behavioral guidance in `lib/prompts.ts` system prompt
+4. **Test:** Run `npm test` in sage-web to verify tool name consistency
+
+## Using sage-gis or sage-gov standalone
+
+The MCP servers work with any MCP client, not just sage-web:
+
+```bash
+# Claude Desktop / Claude Code (stdio mode)
+cd sage-gis
+npx tsx scripts/mcp-dev-server.ts
+
+# Or via HTTP
+curl -X POST https://sage-gis.vercel.app/api/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+This means sage-gis and sage-gov can be consumed by other AI systems, custom scripts, or future applications — independent of sage-web.
