@@ -1,5 +1,5 @@
 ---
-title: "Hi-Res Tile Supersampling"
+title: "Hi-Res Supersampling"
 description: "Fetching 4 tiles instead of 1 to double raster detail on aerial imagery — sharper maps for humans and AI vision alike"
 ---
 
@@ -10,11 +10,11 @@ The fix: fetch tiles from one zoom level deeper than what the view requests, com
 ## The difference
 
 <Frame caption="Standard — tiles fetched at the view's native LOD. Visible tile grid seams, softer edges on structures and vegetation.">
-  ![Standard tile rendering](/images/hires-standard.jpg)
+  ![Standard tile rendering](/images/hires-supersampled.jpg)
 </Frame>
 
 <Frame caption="Supersampled — same view, but each tile is composited from 4 child tiles at LOD+1. No seams, sharper rooftops and tree canopy.">
-  ![Supersampled tile rendering](/images/hires-supersampled.jpg)
+  ![Supersampled tile rendering](/images/hires-standard.jpg)
 </Frame>
 
 The improvement is subtle at normal viewing distance but significant for two audiences: users zooming into specific structures, and AI vision models analyzing screenshots where every pixel of detail helps distinguish building edges, roof materials, and vegetation boundaries.
