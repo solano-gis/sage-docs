@@ -39,9 +39,9 @@ Knowledge loads progressively to minimize token usage:
 |------|------|------|--------|
 | **Discovery** | Skill names + descriptions | Always (system prompt) | ~750 |
 | **Instructions** | SKILL.md body (context, gotchas, patterns) | On demand via `load_skill()` | 500–2,000 per skill |
-| **References** | Deep-dive files (field semantics, regulatory detail) | On demand via `get_solano_context` | 500–5,000 per file |
+| **References** | Deep-dive files (field semantics, regulatory detail) | Bundled in SKILL.md or via `get_layer_context` | 500–5,000 per file |
 
-A typical specialized query loads 1 skill + 0–1 reference files = 1,500–4,000 tokens of domain knowledge.
+A typical specialized query loads 1 skill = 1,000–3,000 tokens of domain knowledge.
 
 ## Skills complement tools
 
