@@ -92,10 +92,37 @@ After 1-2 tool calls with map screenshots, context can approach the 200K limit. 
 | `hooks/useMapPostMessage.ts` | iframe communication, screenshot validation |
 | `hooks/useMapPanel.ts` | Map panel state, command queue |
 
-## Client-side vs server-side tools
+## Tool execution model
 
-Most tools execute on the MCP servers (sage-gov, sage-gis). One tool executes in the browser:
+Tools execute in three different places:
 
-- **`update_map`** — Navigation, layer visibility, parcel highlights, overlays
+| Type | Where it runs | Examples |
+|------|---------------|----------|
+| **MCP tools** | sage-gov or sage-gis (Vercel backend) | `get_parcel_details`, `get_zoning`, `search_county_code` |
+| **Local tools** | sage-web API route (server-side) | `load_tool_group`, `load_skill`, `query_map_features`, `locate_in_view` |
+| **Client-side tool** | User's browser via iframe postMessage | `update_map` |
 
-This tool is intercepted by `ToolResult.tsx`, which sends a postMessage to the sage-map iframe. The iframe executes the command, captures a screenshot, and sends it back. This enables instant map manipulation without a server round-trip.
+### update_map (client-side)
+
+`update_map` is the AI's handle on the user's live map. It has no server execute — `ToolResult.tsx` intercepts it client-side and translates it into postMessage commands to the sage-map iframe.
+
+**Parameters:**
+
+| Parameter | Type | Effect |
+|-----------|------|--------|
+| `center` | `{ latitude, longitude }` | Navigate to coordinates |
+| `zoom` | `number` | Set zoom level |
+| `pan` | `string` | Relative pan direction (north, southeast, etc.) |
+| `pan_amount` | `number` | Pan distance as % of viewport (default 50) |
+| `layers` | `[{ title, visible }]` | Toggle layer visibility |
+| `highlight_apns` | `string[]` | Highlight parcels by APN |
+| `highlight_features` | `{ layer_title, where, max_features? }` | Highlight features by SQL WHERE expression |
+| `clear_highlights` | `boolean` | Remove all highlights |
+| `add_overlay` | `{ url, title, layerType, opacity }` | Add external service layer |
+| `remove_overlay` | `string` | Remove an overlay by title |
+
+**Feature highlighting** queries any FeatureServer layer by SQL WHERE expression. The AI constructs expressions from domain knowledge — e.g., `highlight_features: { layer_title: "FHSZ", where: "HAZ_CLASS = 'Very High'" }`. sage-web resolves layer titles to URLs via its layer registry (`lib/layer-registry.ts`) before sending the command.
+
+### Ack-before-output
+
+`update_map` waits up to 8 seconds for the iframe's `command-ack` before calling `addToolOutput`. The tool output includes an `ackStatus` field (`confirmed`, `unconfirmed`, or `failed`) so the AI knows whether it can trust the map state. This prevents hallucinated map descriptions when the iframe bridge is broken. See [Map Protocol](/integration/map-protocol) for details.

@@ -48,28 +48,54 @@ The `command` field in `map-command` is a discriminated union:
 | Command | Parameters | Effect |
 |---------|-----------|--------|
 | `goto` | `center`, `zoom`, `apn`, `apns`, `extent` | Navigate to location |
-| `highlight-apns` | `apns[]` | Highlight parcels (orange outlines) |
+| `highlight-apns` | `apns[]` | Highlight parcels by APN (orange outlines) |
+| `highlight-features` | `url`, `where`, `layerTitle?`, `maxFeatures?` | Highlight any queryable features by SQL WHERE expression |
 | `clear-highlights` | — | Remove all highlights |
 | `set-layers-visible` | `layers: [{ title, visible }]` | Toggle layer visibility |
 | `add-layer` | `url`, `title`, `layerType`, `opacity` | Add external service overlay |
 | `remove-layer` | `title` | Remove an added overlay |
 | `set-preset` | `preset` | Switch entire web map (parcels, planning, hazards, master) |
 
+### highlight-features
+
+Generalized feature selection via SQL WHERE expressions. Unlike `highlight-apns` (which only handles parcels by APN), this command queries any FeatureServer URL and highlights matching features with geometry-adaptive symbols:
+
+- **Polygon** — transparent fill, orange 3px outline
+- **Polyline** — orange 3px line
+- **Point** — orange circle marker, size 10, white outline
+
+The AI constructs WHERE expressions from domain knowledge (e.g., `zone_abrev = 'R-1'`, `HAZ_CLASS = 'Very High'`). sage-web resolves layer titles to FeatureServer URLs via its layer registry before sending the command. The `maxFeatures` cap (default 500) prevents runaway queries.
+
 ## Command lifecycle
 
 ```
-1. Parent creates commandId, posts map-command
-2. Parent records send timestamp (for latency metrics)
-3. If iframe not ready, command queued until map-ready
-4. Iframe receives command, adds to FIFO queue
-5. Iframe executes command, waits for render settle
-6. Iframe captures screenshot (1092×1092 JPEG, 75%)
-7. Iframe sends command-ack with screenshotDataUrl
-8. Parent correlates ack to commandId, stores screenshot
-9. Screenshot attached to next AI context
+ 1. Parent creates commandId, clears stale ack screenshots
+ 2. Parent posts map-command, records send timestamp
+ 3. If iframe not ready, command queued until map-ready
+ 4. Iframe receives command, adds to FIFO queue
+ 5. Iframe executes command, waits for render settle
+ 6. Iframe captures screenshot (1092×1092 JPEG, 75%)
+ 7. Iframe sends command-ack with screenshotDataUrl
+ 8. Parent correlates ack to commandId, stores screenshot
+ 9. Parent reports tool output to AI with ackStatus
+10. Screenshot attached to next AI context
 ```
 
-### Ack semantics
+### Ack-before-output
+
+The parent **waits for the iframe's command-ack before reporting success to the AI**. This is critical — without it, the AI sees "Map updated" immediately and hallucinates a description of what it "sees" before any screenshot arrives. If the iframe bridge is broken (origin mismatch, deployment protection, iframe not loaded), the AI would confidently describe a map state that doesn't exist.
+
+`ToolResult.tsx` calls `waitForCommandAck(commandId, 8000)` and reports one of three statuses in the tool output:
+
+| `ackStatus` | Meaning | AI behavior |
+|-------------|---------|-------------|
+| `confirmed` | Iframe processed command, screenshot available | AI can describe what it sees |
+| `unconfirmed` | 8s timeout — iframe may be dead | AI tells user the command wasn't confirmed |
+| `failed` | `sendCommand` returned null (no iframe) | AI tells user the map isn't available |
+
+The system prompt instructs the AI to never describe map contents when `ackStatus` is `unconfirmed` or `failed`.
+
+### Ack payload semantics
 
 - `applied: true` — command completed as intended
 - `applied: false` — no-op, blocked, or failed (with `details.reason`)
@@ -106,8 +132,17 @@ MapStateSnapshot {
   rotation: number
   visibleLayers: string[]
   highlightedApns: string[]
+  highlights: HighlightInfo[]      // Generic feature highlights
   preset: string
   webMapId: string
+}
+
+HighlightInfo {
+  layerTitle?: string
+  url: string
+  where: string
+  featureCount: number
+  geometryType: 'polygon' | 'polyline' | 'point' | 'unknown'
 }
 ```
 

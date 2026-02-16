@@ -28,6 +28,15 @@ Four pre-configured ArcGIS Online web maps, switchable on demand:
 - **Layer pairs** — VectorTileLayer (fast rendering) paired with FeatureLayer (queries/identify). Visibility synced automatically.
 - **Dynamic layers** — External REST services can be added at runtime via `add-layer` command
 
+### Feature highlighting
+
+Two highlight commands enable the AI to visually mark features on the shared map:
+
+- **`highlight-apns`** — Highlights specific parcels by APN. Orange polygon outlines, zooms to fit.
+- **`highlight-features`** — Highlights any queryable FeatureServer layer by SQL WHERE expression. Geometry-adaptive symbols: orange polygon outlines, orange polylines, or orange circle markers depending on feature type. Capped at 500 features per query.
+
+Examples: `where: "zone_abrev = 'R-1'"` highlights all R-1 zoning districts; `where: "HAZ_CLASS = 'Very High'"` highlights severe fire hazard zones.
+
 ### Parcel interaction
 
 - **Click** → `parcel-clicked` event with APN, address, coordinates
@@ -88,7 +97,8 @@ sage-map/
 │       │   ├── useHiResTiles.ts         ← 2× tile supersampling
 │       │   └── useElevationReadout.ts   ← LiDAR display
 │       └── utils/
-│           └── highlightParcels.ts      ← Orange highlight rendering
+│           ├── highlightParcels.ts      ← Parcel highlight by APN
+│           └── highlightFeatures.ts     ← Generic feature highlight by WHERE expression
 ├── lib/
 │   ├── shared/map-protocol/index.ts    ← CANONICAL postMessage types
 │   ├── esri/webmaps.ts                 ← Web Map ID registry

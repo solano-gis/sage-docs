@@ -48,7 +48,7 @@ SAGE is split across four independent Vercel deployments. This isn't a microserv
   </Accordion>
 
   <Accordion title="sage-map — Interactive ArcGIS map">
-    **What it does:** Renders an interactive ArcGIS web map embedded as an iframe. Accepts commands (pan, zoom, highlight parcels, toggle layers) and returns screenshots for AI vision.
+    **What it does:** Renders an interactive ArcGIS web map embedded as an iframe. Accepts commands (pan, zoom, highlight parcels/features, toggle layers) and returns screenshots for AI vision.
 
     **What it accesses:** ArcGIS Online web maps via the standard Maps SDK. Same data as any ArcGIS web application. No MCP tools. No AI. Pure visualization.
 
@@ -76,12 +76,18 @@ SAGE is split across four independent Vercel deployments. This isn't a microserv
 ```
 1. Claude calls update_map({ highlight_apns: ["003-025-102"], zoom: 17 })
 2. sage-web posts command to sage-map iframe via postMessage
-3. sage-map executes: highlights parcel, zooms in, waits for render
-4. sage-map captures 1092×1092 screenshot
-5. sage-map sends screenshot back via postMessage
-6. sage-web attaches screenshot to next AI context
-7. Claude can now describe what it sees on the map
+3. sage-web waits for command-ack (up to 8 seconds)
+4. sage-map executes: highlights parcel, zooms in, waits for render
+5. sage-map captures 1092×1092 screenshot
+6. sage-map sends command-ack with screenshot back via postMessage
+7. sage-web reports ackStatus to AI ("confirmed" / "unconfirmed" / "failed")
+8. sage-web attaches screenshot to next AI context
+9. Claude can now describe what it sees on the map
 ```
+
+The ack-before-output pattern prevents hallucination: if the iframe bridge is broken (origin mismatch, deployment protection, iframe not loaded), the AI gets `ackStatus: "unconfirmed"` and tells the user honestly instead of fabricating a map description. See [Map Protocol](/integration/map-protocol) for the full contract.
+
+Beyond parcel highlights, `update_map` supports **feature highlighting by WHERE expression** — e.g., `highlight_features: { layer_title: "FHSZ", where: "HAZ_CLASS = 'Very High'" }` highlights all severe fire hazard zones with orange outlines.
 
 ## Why four services instead of one
 
