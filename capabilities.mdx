@@ -74,7 +74,8 @@ For how these capabilities are built, see [Architecture](/architecture). For the
 | Feature counting | Count features in any map layer within a bounding box or the current map view |
 | Attribute sampling | Retrieve the first N features with attributes, sorted by any field (e.g., top 10 parcels by acreage) |
 | Aggregate statistics | Sum, average, min, max with GROUP BY across any queryable layer (e.g., total acreage by zoning type) |
-| Spatial chaining | Derive the bounding box of features in one layer, then use it to query another layer (e.g., find parcels within fire hazard zones) |
+| Polygon spatial filter | Use the actual polygon geometry of features in one layer to filter another — e.g., count parcels inside a specific FEMA flood zone polygon, not just its bounding box |
+| Spatial relationships | Query with `intersects`, `contains`, `within`, `touches`, or `crosses` — supports precise adjacency and containment questions |
 | Driving directions | Turn-by-turn routes via ESRI World Route Service between any two locations |
 | Travel time | Point-to-point travel time and distance estimates |
 | Buffer analysis | Map visualization with radius overlay around a parcel or point |
