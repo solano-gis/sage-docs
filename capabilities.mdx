@@ -3,7 +3,7 @@ title: "Capabilities"
 description: "Everything SAGE can do — organized by what users ask, not how the code works"
 ---
 
-SAGE has 67 tools across three services, 10 knowledge domains, and a shared interactive map. This page catalogs what the AI can actually do, organized by capability rather than implementation.
+SAGE has 69 tools across three services, 10 knowledge domains, and a shared interactive map. This page catalogs what the AI can actually do, organized by capability rather than implementation.
 
 For how these capabilities are built, see [Architecture](/architecture). For the knowledge system behind intelligent answers, see [Knowledge Base](/knowledge).
 
@@ -82,6 +82,8 @@ For how these capabilities are built, see [Architecture](/architecture). For the
 | Buffer analysis | Precise buffer polygons around parcels or points via ESRI Geometry Service — buffer extends from the actual parcel boundary, not just the centroid. Uses CA State Plane Zone 2 (US survey feet) for accurate distances. |
 | Notification lists | Chain buffer → spatial query to find all parcels within a radius of a property — the core workflow for CEQA/permit notification requirements |
 | Point-in-polygon query | Query any registered map layer at a point location — general plan designation, garbage service area, subdivisions, wildlife hazard zones, demographics, and more |
+| Cross-layer overlay analysis | Compute the geometric intersection of two layers and calculate overlap areas — answers "how many acres of A-40 zoned land are in the AE flood zone?" using ESRI Geometry Service batch intersect with geodesic area calculation |
+| Polygon union | Merge multiple parcels or polygon features into a single combined boundary — accepts APNs or raw geometries, returns the union polygon with area in acres. Use for project site assembly or multi-parcel analysis. |
 
 ## GIS Data Discovery
 
@@ -114,11 +116,11 @@ SAGE loads domain expertise on demand via the [skill system](/knowledge). Each s
 
 | Metric | Count |
 |--------|-------|
-| MCP tools (sage-gis) | 31 |
+| MCP tools (sage-gis) | 33 |
 | MCP tools (sage-gov) | 30 |
 | Local tools (sage-web server-side) | 4 |
 | Client-side tools (browser) | 2 |
-| **Total tools** | **67** |
+| **Total tools** | **69** |
 | Knowledge skills | 10 |
 | Queryable map layers | 30+ |
 | GIS data categories | 11 |
