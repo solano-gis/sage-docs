@@ -3,7 +3,7 @@ title: "Capabilities"
 description: "Everything SAGE can do — organized by what users ask, not how the code works"
 ---
 
-SAGE has 65 tools across three services, 10 knowledge domains, and a shared interactive map. This page catalogs what the AI can actually do, organized by capability rather than implementation.
+SAGE has 67 tools across three services, 10 knowledge domains, and a shared interactive map. This page catalogs what the AI can actually do, organized by capability rather than implementation.
 
 For how these capabilities are built, see [Architecture](/architecture). For the knowledge system behind intelligent answers, see [Knowledge Base](/knowledge).
 
@@ -19,6 +19,7 @@ For how these capabilities are built, see [Architecture](/architecture). For the
 | Nearby amenities | Find schools, parks, fire stations, hospitals, libraries, police, transit stops, and community centers within radius |
 | Oblique aerial imagery | Sanborn 5-angle photography (N/S/E/W + nadir) at any address — see buildings from the side, not just above |
 | LiDAR elevation | Surface model (DSM), terrain model (DTM), and canopy height (CHM) at 1-foot resolution from 2023 county LiDAR |
+| Terrain analysis | Slope (degrees, percent, classification), aspect (compass direction), and full elevation detail at any point — uses Horn's method on a 3×3 LiDAR grid at 1ft resolution |
 
 ## Zoning & Land Use
 
@@ -78,7 +79,9 @@ For how these capabilities are built, see [Architecture](/architecture). For the
 | Spatial relationships | Query with `intersects`, `contains`, `within`, `touches`, or `crosses` — supports precise adjacency and containment questions |
 | Driving directions | Turn-by-turn routes via ESRI World Route Service between any two locations |
 | Travel time | Point-to-point travel time and distance estimates |
-| Buffer analysis | Map visualization with radius overlay around a parcel or point |
+| Buffer analysis | Precise buffer polygons around parcels or points via ESRI Geometry Service — buffer extends from the actual parcel boundary, not just the centroid. Uses CA State Plane Zone 2 (US survey feet) for accurate distances. |
+| Notification lists | Chain buffer → spatial query to find all parcels within a radius of a property — the core workflow for CEQA/permit notification requirements |
+| Point-in-polygon query | Query any registered map layer at a point location — general plan designation, garbage service area, subdivisions, wildlife hazard zones, demographics, and more |
 
 ## GIS Data Discovery
 
@@ -111,11 +114,11 @@ SAGE loads domain expertise on demand via the [skill system](/knowledge). Each s
 
 | Metric | Count |
 |--------|-------|
-| MCP tools (sage-gis) | 28 |
-| MCP tools (sage-gov) | 31 |
+| MCP tools (sage-gis) | 31 |
+| MCP tools (sage-gov) | 30 |
 | Local tools (sage-web server-side) | 4 |
 | Client-side tools (browser) | 2 |
-| **Total tools** | **65** |
+| **Total tools** | **67** |
 | Knowledge skills | 10 |
 | Queryable map layers | 30+ |
 | GIS data categories | 11 |
