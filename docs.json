@@ -3,9 +3,9 @@
   "theme": "mint",
   "name": "SAGE Documentation",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#00475F",
+    "light": "#0070A6",
+    "dark": "#003a4e"
   },
   "appearance": {
     "default": "light",
