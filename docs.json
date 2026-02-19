@@ -35,6 +35,7 @@
         "group": "Features",
         "pages": [
           "knowledge",
+          "report-cards-deep-dive",
           "services/oblique-imagery",
           "services/lidar-elevation",
           "services/county-code",
@@ -48,6 +49,7 @@
         "pages": [
           "integration/mcp",
           "integration/map-protocol",
+          "integration/report-cards",
           "integration/shared-canvas"
         ]
       },
