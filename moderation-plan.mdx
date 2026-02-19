@@ -1,0 +1,263 @@
+---
+title: "Moderation Plan"
+description: "Role-based moderation architecture for sage-web (county staff pilot first, public-ready path)"
+---
+
+This document is the implementation plan for moderation in SAGE, grounded in current `sage-web` behavior and current governance commitments.
+
+Date baseline: February 19, 2026.
+
+## Goal
+
+Primary goal:
+- Prevent abusive or policy-violating content from being sent to upstream LLMs.
+
+Secondary goals:
+- Keep responses professional and civil-service appropriate.
+- Prevent recommendation-style answers that create perceived-authority risk.
+- Preserve SAGE utility for county workflows (data retrieval + synthesis, not open-ended refusal).
+
+## Scope (v1)
+
+In scope:
+- Select county staff deployment (initial rollout).
+- One moderation architecture in `sage-web` that can be tightened later for public access.
+- Three layers: loose input moderator, guardrailed role-identity system prompt, guideline-based output moderator.
+
+Out of scope for this phase:
+- Different moderation implementations per app/version/deployment.
+- Full public-tier product design (structured entry points, anonymous UX, full rate-limit policy).
+
+## Current Baseline (What Exists Today)
+
+From `sage-web`:
+- One large static `systemPrompt` in `/Users/ryan/Development/sage-web/lib/prompts.ts` with disclaimers and scope rules.
+- Agent chain cap is `stepCountIs(10)` in `/Users/ryan/Development/sage-web/app/api/chat/route.ts`.
+- Dynamic context injection (map state, report context, identify results) already exists.
+- Rich interaction logging already exists (`prodLog` + blob persistence).
+- No dedicated moderation pipeline currently blocks/sanitizes user input before model calls.
+- No post-generation output classifier currently rewrites/blocks assistant text before delivery.
+
+From `sage-docs`:
+- Governance already commits to progressive tiers and planned input/output controls in `/Users/ryan/Development/sage-docs/governance.mdx`.
+- Evaluation framework already measures refusal/grounding and can be extended in `/Users/ryan/Development/sage-docs/evaluation.mdx` and `/Users/ryan/Development/sage-web/e2e/eval-goals.ts`.
+
+## Target Moderation Architecture
+
+### Layer 1: Loose Input Moderator (Pre-LLM)
+
+Purpose:
+- Catch high-risk input early so abusive content is not forwarded upstream.
+- Keep this layer intentionally narrow and permissive for staff workflows.
+
+Input examined:
+- Latest user message text only (plus lightweight metadata like session/tier/profile).
+
+Checks:
+- Tier 4 abuse category from internal brainstorming policy (external taxonomy source of truth).
+- Prompt-injection patterns ("ignore system instructions", "act as unrestricted model", etc.).
+- Obvious PII/secrets in user text (SSN, card numbers, credentials).
+- Fully off-topic requests that waste compute.
+
+Actions:
+- `allow`: pass through unchanged.
+- `allow_sanitized`: remove or mask disallowed fragments, continue.
+- `block`: return safe refusal/redirect without calling the main model.
+
+Design principle:
+- This is a bouncer, not a full topic classifier.
+
+### Layer 2: Guardrailed System Message (Role Identity)
+
+Purpose:
+- Make the model behave like a virtual civil service employee by default.
+
+Core role framing:
+- "You are a virtual Solano County civil service analyst."
+- Data retrieval and factual synthesis are in scope.
+- Recommendations, endorsements, legal/investment advice, and unsupported regulatory conclusions are out of scope.
+- Sensitive Tier 4 content must be handled conservatively.
+
+Behavioral requirements:
+- For regulatory claims, cite specific sections when available.
+- For decision-grade topics, route users to the relevant department contact.
+- Keep tone professional, neutral, and non-inflammatory.
+
+Design principle:
+- Use role identity and professional scope of practice, not a giant static whitelist.
+
+### Layer 3: Guideline-Based Output Moderator (Assistant Message Only)
+
+Purpose:
+- Catch policy slips after generation and before user delivery.
+
+Input examined:
+- Only the current assistant response text (not full conversation history).
+
+Checks:
+- Professional standards (tone, civility, non-hostile language).
+- Advice/recommendation violations ("you should buy/build/invest/sue").
+- Unsupported regulatory conclusions without citation framing.
+- Tier 4 or abusive language leakage in the assistant output.
+
+Actions:
+- `pass`: deliver as-is.
+- `rewrite`: deliver a policy-safe rewrite.
+- `block`: deliver a short safe fallback.
+
+Design principle:
+- Evaluate the actual output, not the user's question intent.
+
+### Correction Loop
+
+When rewrite/block occurs:
+1. Deliver moderated output to user.
+2. Append hidden system correction note for next turn ("previous response violated category X; avoid pattern Y").
+3. Log category and action for tuning/audit.
+
+This lets the model self-calibrate within the ongoing session.
+
+## Message Flow (Moderated Tier)
+
+```text
+User message
+  -> Input moderation (allow / sanitize / block)
+  -> Main SAGE generation (tools + reasoning)
+  -> Output moderation on final assistant text
+  -> Deliver pass/rewrite/block result
+  -> Log moderation events + correction note (if needed)
+```
+
+## Implementation Plan in sage-web
+
+### 1. Policy Profile and Prompt Refactor
+
+Files:
+- `/Users/ryan/Development/sage-web/lib/prompts.ts`
+- `/Users/ryan/Development/sage-web/app/api/chat/route.ts`
+
+Changes:
+- Introduce policy profiles (for example `staff_pilot`, `public_strict`), defaulting to staff pilot for this phase.
+- Refactor prompt export from a single `systemPrompt` string to a profile-aware builder, while preserving existing map/context instructions.
+- Add explicit civil-service role language and Tier 4 handling instructions in the profile block.
+
+### 2. Input Moderator Hook
+
+Files (new):
+- `/Users/ryan/Development/sage-web/lib/moderation/policy.ts`
+- `/Users/ryan/Development/sage-web/lib/moderation/input.ts`
+- `/Users/ryan/Development/sage-web/lib/moderation/types.ts`
+
+Route insertion point:
+- In `/Users/ryan/Development/sage-web/app/api/chat/route.ts`, after request parse and before model call setup.
+
+Behavior:
+- Read latest user text.
+- Run lightweight moderation check.
+- On `block`, short-circuit with safe response and audit event.
+- On `allow_sanitized`, replace outgoing text with sanitized text and continue.
+
+### 3. Output Moderator Hook
+
+Files (new):
+- `/Users/ryan/Development/sage-web/lib/moderation/output.ts`
+
+Route insertion point:
+- In `/Users/ryan/Development/sage-web/app/api/chat/route.ts`, after full assistant text is available and before final delivery.
+
+Important streaming note:
+- Current path streams tokens directly to user.
+- Post-hoc moderation requires buffering final assistant text before release for moderated tiers.
+
+Phase approach:
+- Staff pilot: use buffered delivery for moderated profiles (small latency increase, higher safety).
+- Future optimization: sentence/window moderation for partial streaming if needed.
+
+### 4. Audit and Observability
+
+Files:
+- `/Users/ryan/Development/sage-web/lib/server-logger.ts`
+- `/Users/ryan/Development/sage-web/lib/interaction-store.ts`
+
+Add events:
+- `moderation.input` (category, action, confidence, sanitized boolean)
+- `moderation.output` (category, action, confidence)
+- `moderation.redaction` (rule id, replacement strategy)
+
+Data handling:
+- Store minimal snippets or hashes for sensitive content.
+- Keep enough detail for policy tuning and incident review.
+
+## Policy Categories (Initial)
+
+| Category | Example | Input Action | Output Action |
+|---|---|---|---|
+| Tier 4 abuse content | Explicit abusive prompt | Block or sanitize | Block or rewrite |
+| Prompt injection | "Ignore system rules" | Allow but flag/strip | N/A unless reflected |
+| PII/secrets | SSN, card, credentials | Mask or block | Do not echo; rewrite |
+| Recommendation/advice | "This is a great investment" | Allow | Rewrite with data-only framing + referral |
+| Unsupported regulatory claim | "You can build X here" with no support | Allow | Rewrite to citation/referral pattern |
+| Unprofessional tone | Hostile/derogatory language | Allow | Rewrite to professional tone |
+
+## Rollout Plan
+
+### Phase 0: Shadow Mode (No User-Facing Blocks)
+
+- Run input/output moderation in parallel.
+- Log would-block and would-rewrite decisions.
+- Tune policy examples and thresholds against real traffic.
+
+Exit criteria:
+- Stable false-positive rate on staff traffic.
+- Clear top violation categories and rewrite quality.
+
+### Phase 1: Staff Pilot Enforcement
+
+- Enable hard input block for Tier 4 and high-confidence abuse.
+- Enable output rewrite/block for professionalism/advice/citation rules.
+- Keep chain cap at current staff value (`stepCountIs(10)`).
+
+Exit criteria:
+- Moderation latency within budget.
+- No major workflow regressions in staff usage.
+
+### Phase 2: Public-Ready Hardening
+
+- Tighten profile for public deployment.
+- Add stricter output constraints and shorter chain cap where needed.
+- Pair with structured entry points/rate limiting/disclaimer UX from governance plan.
+
+## Evaluation and Success Metrics
+
+Extend existing evals (`/Users/ryan/Development/sage-web/e2e/eval-goals.ts`) with moderation scenarios:
+- Abusive input does not reach main model path.
+- Recommendation language is rewritten to data-only analysis.
+- Regulatory claims without citation are reframed.
+- Output remains professional under adversarial prompts.
+
+Track:
+- Input block rate.
+- Output rewrite rate.
+- Confirmed false-positive rate (manual review sample).
+- Confirmed false-negative rate (manual review sample).
+- Added p95 latency (target: <= 700 ms incremental for moderated tiers).
+
+## Open Decisions
+
+- Canonical Tier 4 taxonomy source and versioning process (policy doc owner).
+- Moderator model choice (Gemini Flash vs Claude Haiku vs deterministic/rule mix).
+- Rewrite strategy defaults (LLM rewrite vs rule-template rewrite by category).
+- How much moderated excerpt text is retained in logs by default.
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Overblocking legitimate staff requests | Workflow friction | Start loose, shadow first, tune with real examples |
+| Output rewrite degrades quality | Lower trust | Keep rewrite narrow and category-specific; compare pre/post in logs |
+| Latency increase from post-hoc moderation | UX slowdown | Buffer only for moderated profiles; optimize model/tool choice |
+| Policy drift between prompt and moderator | Inconsistent behavior | Single shared policy source and versioned examples |
+
+## Practical Boundary for This Plan
+
+This plan intentionally optimizes for near-term county staff deployment while laying a direct path to future public deployment. It does not yet split behavior by separate app versions; it introduces a policy-profile mechanism so the same code path can be tightened later without rewriting the architecture.
